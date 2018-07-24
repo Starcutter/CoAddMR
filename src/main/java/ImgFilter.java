@@ -4,8 +4,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 
 public class ImgFilter {
+	final static int picHeight = 1489;
     final static int picWidth = 2048;
-    final static int picHeight = 1489;
 
     public static class picInfo {
         int run, field, camcol;
@@ -38,6 +38,17 @@ public class ImgFilter {
                 this.query[i] = query[i];
             }
         }
+
+        public String toString() {
+            String out = name + "\n";
+            for(int i = 0; i < 4; i++)
+                out = out + pic[i] + " ";
+            out = out + "\n";
+            for(int i = 0; i < 4; i++)
+                out = out + query[i] + " ";
+            out = out + "\n";
+            return out;
+        }
     }
 
     public static ArrayList<picInfo> cacheCsv = new ArrayList<picInfo>();
@@ -64,7 +75,7 @@ public class ImgFilter {
             if(pic.coordinate[0] < query[1] && pic.coordinate[1] > query[0] &&
                     pic.coordinate[2] < query[3] && pic.coordinate[3] > query[2]) {
                 if(pic.coordinate[0] < query[0]) {
-                    picOut[0] = (int) (picWidth * (query[0] - pic.coordinate[0]) / (pic.coordinate[1] - pic.coordinate[0]));
+                    picOut[0] = (int) (picHeight * (query[0] - pic.coordinate[0]) / (pic.coordinate[1] - pic.coordinate[0]));
                     queryOut[0] = query[0];
                 }
                 else {
@@ -73,16 +84,16 @@ public class ImgFilter {
                 }
 
                 if(pic.coordinate[1] < query[1]) {
-                    picOut[1] = picWidth;
+                    picOut[1] = picHeight;
                     queryOut[1] = pic.coordinate[1];
                 }
                 else {
-                    picOut[1] = (int) (picWidth * (query[1] - pic.coordinate[0]) / (pic.coordinate[1] - pic.coordinate[0]));
+                    picOut[1] = (int) (picHeight * (query[1] - pic.coordinate[0]) / (pic.coordinate[1] - pic.coordinate[0]));
                     queryOut[1] = query[1];
                 }
 
                 if(pic.coordinate[2] < query[2]) {
-                    picOut[2] = (int) (picHeight * (query[2] - pic.coordinate[2]) / (pic.coordinate[3] - pic.coordinate[2]));
+                    picOut[2] = (int) (picWidth * (query[2] - pic.coordinate[2]) / (pic.coordinate[3] - pic.coordinate[2]));
                     queryOut[2] = query[2];
                 }
                 else {
@@ -91,7 +102,7 @@ public class ImgFilter {
                 }
 
                 if(pic.coordinate[3] < query[3]) {
-                    picOut[3] = picHeight;
+                    picOut[3] = picWidth;
                     queryOut[3] = pic.coordinate[3];
                 }
                 else {
