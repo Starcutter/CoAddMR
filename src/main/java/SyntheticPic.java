@@ -41,7 +41,7 @@ public class SyntheticPic {
     	
     	BufferedImage bImage = new BufferedImage(picWidth, picHeight, BufferedImage.TYPE_BYTE_GRAY);
     	int [][] cnt = new int[picHeight][picWidth];
-    	int [][] gray = new int[picHeight][picWidth];
+    	float [][] gray = new float[picHeight][picWidth];
     	for(ImgFilter.queryRes info :infos) {
             System.out.println(info.toString());
     	    Path path = new Path(info.name);
@@ -70,23 +70,27 @@ public class SyntheticPic {
             for(int i = (int)(picHeight * (info.query[0] - query[0]) / (query[1] - query[0])); i < (int)(picHeight * (info.query[1] - query[0]) / (query[1] - query[0])); i++) {
                 for (int j = (int) (picWidth * (info.query[2] - query[2]) / (query[3] - query[2])); j < (int) (picWidth * (info.query[3] - query[2]) / (query[3] - query[2])); j++) {
                     try {
-                        gray[i][j] += Math.max(0, (int) (fit[i - (int) (picHeight * (info.query[0] - query[0]) / (query[1] - query[0]))][j - (int) (picWidth * (info.query[2] - query[2]) / (query[3] - query[2]))]));
+                        gray[i][j] += (fit[i - (int) (picHeight * (info.query[0] - query[0]) / (query[1] - query[0]))][j - (int) (picWidth * (info.query[2] - query[2]) / (query[3] - query[2]))]);
                         cnt[i][j] += 1;
                     } catch (ArrayIndexOutOfBoundsException e) {
                     }
                 }
             }
     	}
+
+    	float max = -10000;
+    	float min = 10000;
         for(int i = 0; i < picHeight; i++) {
             for(int j = 0; j < picWidth; j++) {
-                int rgb = 0;
-                if(cnt[i][j] != 0) {
-                    rgb = gray[i][j] / cnt[i][j];
-                    if(rgb > 0) System.out.println("point!! " + i + " " + " " + j + " " + gray[i][j] + " " + cnt[i][j] + " " + rgb);
-                }
-                else {
-                    System.out.println("i and j error!! " + i + " " + j);
-                }
+                gray[i][j] /= cnt[i][j];
+                if(gray[i][j] > max) max = gray[i][j];
+                if(gray[i][j] <min) min = gray[i][j];
+            }
+        }
+        for(int i = 0; i < picHeight; i++) {
+            for (int j = 0; j < picWidth; j++) {
+                int rgb = (int) (255 * Math.log(1000 * (gray[i][j] - min) / (max - min) + 1) / Math.log(1000));
+                if(rgb > 100) System.out.println("light!! " + gray[i][j] + " " + max + " " + min + " " + rgb);
                 int grayColor = colorToRGB(255, rgb, rgb, rgb);
                 bImage.setRGB(j, i, grayColor);
             }
