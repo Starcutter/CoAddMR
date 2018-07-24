@@ -1,6 +1,11 @@
 import nom.tam.fits.Fits;
 import nom.tam.fits.FitsException;
 import nom.tam.fits.ImageHDU;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.compress.*;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -12,6 +17,7 @@ public class SyntheticPic {
 	final static int standard = 2048;
 	final static int picWidth = 2048;
 	final static int picHeight = 1489;
+
     private static int colorToRGB(int alpha, int red, int green, int blue) {
         int newPixel = 0;
         newPixel += alpha;
@@ -26,8 +32,13 @@ public class SyntheticPic {
 
     }
     
-    public static BufferedImage synPic(double query[]) throws FitsException, IOException {
-    	ArrayList<ImgFilter.queryRes> infos = new ArrayList<ImgFilter.queryRes>();
+    public static BufferedImage synPic(double query[],
+                                       ArrayList<ImgFilter.queryRes> infos
+    ) throws FitsException, IOException {
+
+        Configuration conf = new Configuration();
+        CompressionCodecFactory factory = new CompressionCodecFactory(conf);
+
     	int picWidth = standard;
     	int picHeight = (int) (standard * (query[3] - query[2]) / (query[1] - query[0]));
     	
@@ -36,7 +47,17 @@ public class SyntheticPic {
     	int [][] gray = new int[picWidth][picHeight];
     	for(ImgFilter.queryRes info :infos) {
 
-			Fits f = new Fits(info.name);
+    	    Path path = new Path(info.name);
+            FileSystem fs = path.getFileSystem(conf);
+            FSDataInputStream directIn = fs.open(path);
+            CompressionCodec codec = factory.getCodec(path);
+            assert codec != null;
+            Decompressor decompressor = CodecPool.getDecompressor(codec);
+            CompressionInputStream cIn = codec.createInputStream(directIn, decompressor);
+
+            Fits f = new Fits(cIn);
+
+//			Fits f = new Fits(info.name);
             ImageHDU hdu = (ImageHDU) f.getHDU(0);
             float[][] image = (float[][]) hdu.getKernel();
             f.close();
@@ -98,9 +119,18 @@ public class SyntheticPic {
     }
     
     public static void main(String[] args) throws Exception {
-    	double []q = new double[4];
-        File output = new File("i.jpg");
-        ImageIO.write(synPic(q), "jpg", output);
+        if (args.length >= 4) {
+            double[] q = new double[4];
+            for (int i = 0; i < 4; i++) {
+                q[i] = Double.parseDouble(args[i]);
+            }
+            ArrayList<ImgFilter.queryRes> infos = ImgFilter.main(q);
+            System.out.println("Overlapping picture num = " + infos.size());
+            File output = new File("i.jpg");
+            ImageIO.write(synPic(q, infos), "jpg", output);
+        } else {
+            System.out.println("Argument Error!");
+        }
     }
     
     public final double[][] initCoefficients(double[][] c) 
