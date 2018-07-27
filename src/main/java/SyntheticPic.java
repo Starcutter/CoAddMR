@@ -8,7 +8,6 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.compress.*;
 
 import javax.imageio.ImageIO;
-import javax.swing.plaf.basic.BasicInternalFrameTitlePane;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
@@ -17,7 +16,7 @@ import java.util.ArrayList;
 public class SyntheticPic {
 	final static int standard = 2048;
 
-    private static int colorToRGB(int alpha, int red, int green, int blue) {
+    public static int colorToRGB(int alpha, int red, int green, int blue) {
         int newPixel = 0;
         newPixel += alpha;
         newPixel = newPixel << 8;

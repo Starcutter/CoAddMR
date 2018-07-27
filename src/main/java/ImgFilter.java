@@ -1,7 +1,13 @@
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.io.IOException;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.Writable;
+
+import java.io.*;
 import java.util.ArrayList;
+import java.util.List;
 
 public class ImgFilter {
 	final static int picHeight = 1489;
@@ -12,7 +18,7 @@ public class ImgFilter {
         double []coordinate = new double[4]; //raMin, raMax, decMin, decMax;
 
         public String toString() {
-            return "summer/301/" + run + "/" + camcol + "/frame-g-" +
+            return "301/" + run + "/" + camcol + "/frame-g-" +
                     String.format("%06d", run) + "-" + camcol + "-" + String.format("%04d", field) + ".fits.bz2";
         }
 
@@ -26,12 +32,20 @@ public class ImgFilter {
         }
     }
 
-    public static class queryRes {
+    public static class queryRes implements Writable {
         String name;
         int []pic = new int[4];
         double []query = new double[4];
 
-        queryRes(picInfo name, int []pic, double []query) throws ClassNotFoundException, IOException {
+        queryRes(String name, int []pic, double []query) {
+            this.name = name;
+            for(int i = 0; i < 4; ++i) {
+                this.pic[i] = pic[i];
+                this.query[i] = query[i];
+            }
+        }
+
+        queryRes(picInfo name, int []pic, double []query) {
             this.name = name.toString();
             for(int i = 0; i < 4; ++i) {
                 this.pic[i] = pic[i];
@@ -40,14 +54,41 @@ public class ImgFilter {
         }
 
         public String toString() {
-            String out = name + "\n";
-            for(int i = 0; i < 4; i++)
-                out = out + pic[i] + " ";
-            out = out + "\n";
-            for(int i = 0; i < 4; i++)
-                out = out + query[i] + " ";
-            out = out + "\n";
-            return out;
+            StringBuilder sb = new StringBuilder(name + ";");
+            sb.append(pic[0]);
+            for(int i = 1; i < 4; i++) {
+                sb.append(",").append(pic[i]);
+            }
+            sb.append(";").append(query[0]);
+            for(int i = 1; i < 4; i++) {
+                sb.append(",").append(query[i]);
+            }
+            sb.append("\n");
+            return sb.toString();
+        }
+
+        @Override
+        public void write(DataOutput dataOutput) throws IOException {
+            new Text(name).write(dataOutput);
+            for (int i = 0; i < 4; i++) {
+                dataOutput.writeInt(pic[i]);
+            }
+            for (int i = 0; i < 4; i++) {
+                dataOutput.writeDouble(query[i]);
+            }
+        }
+
+        @Override
+        public void readFields(DataInput dataInput) throws IOException {
+            Text tmp = new Text();
+            tmp.readFields(dataInput);
+            name = tmp.toString();
+            for (int i = 0; i < 4; i++) {
+                pic[i] = dataInput.readInt();
+            }
+            for (int i = 0; i < 4; i++) {
+                query[i] = dataInput.readDouble();
+            }
         }
     }
 
@@ -114,6 +155,28 @@ public class ImgFilter {
             }
         }
         return res;
+    }
+
+    public static Path writeRes2HDFS(List<queryRes> results, Path path, Configuration conf
+    ) throws IOException {
+        FileSystem hdfs = path.getFileSystem(conf);
+        Path filePath = null;
+        if (hdfs.exists(path) && hdfs.getFileStatus(path).isDirectory()) {
+            filePath = new Path(path + "/res.txt");
+        } else {
+            filePath = path;
+        }
+        if (hdfs.exists(filePath)) {
+            hdfs.delete(filePath, true);
+        }
+        FSDataOutputStream out = hdfs.create(filePath);
+
+        for (queryRes res : results) {
+            out.write(res.toString().getBytes());
+        }
+        out.close();
+
+        return filePath;
     }
 
     public static ArrayList<queryRes> main(double args[]) throws ClassNotFoundException, IOException {

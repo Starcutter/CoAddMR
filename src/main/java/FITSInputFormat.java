@@ -4,7 +4,6 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.IOUtils;
-import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.compress.*;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.RecordReader;
@@ -12,29 +11,35 @@ import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.input.FileSplit;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 
-public class FITSInputFormat extends FileInputFormat<IntWritable, BytesWritable> {
+public class FITSInputFormat extends FileInputFormat<ImgFilter.queryRes, BytesWritable> {
 
-    public class FITSRecordReader extends RecordReader<IntWritable, BytesWritable> {
+    public class FITSRecordReader extends RecordReader<ImgFilter.queryRes, BytesWritable> {
 
         private CompressionCodecFactory compressionCodecFactory;
         private CompressionCodec codec;
         private Decompressor decompressor;
 
-        private IntWritable key = new IntWritable(0);
+        private ImgFilter.queryRes key;
         private BytesWritable value = new BytesWritable();
 
         private FileSplit split;
         private Path path;
+        private String fileName;
         private FileSystem fs;
         private long start ;
         private long end;
-        private long currentPos;
 
         private FSDataInputStream directIn;
         private InputStream in;
+        private BufferedReader cacheBr;
+
+        private byte[] content;
 
         private boolean processed;
 
@@ -50,10 +55,11 @@ public class FITSInputFormat extends FileInputFormat<IntWritable, BytesWritable>
 
             split =(FileSplit) inputSplit;
             path = split.getPath();
+            fileName = path.getName();
             fs = path.getFileSystem(conf);
             directIn = fs.open(path);
 
-            start =split.getStart();
+            start = split.getStart();
             end = start + split.getLength();
 
             codec = compressionCodecFactory.getCodec(path);
@@ -66,27 +72,54 @@ public class FITSInputFormat extends FileInputFormat<IntWritable, BytesWritable>
             }
 
             processed = false;
+
+            assert taskAttemptContext != null;
+            URI resFileURI = taskAttemptContext.getCacheFiles()[0];
+            String resFileName = new Path(resFileURI.getPath()).getName();
+            cacheBr = new BufferedReader(new FileReader(resFileName));
         }
 
         @Override
         public boolean nextKeyValue() throws IOException, InterruptedException {
             if (!processed) {
-                byte[] contents = new byte[(int) split.getLength()];
+                content = new byte[(int) split.getLength()];
                 try {
-                    IOUtils.readFully(in, contents, 0, contents.length);
-                    value.set(contents, 0, contents.length);
+                    IOUtils.readFully(in, content, 0, content.length);
+                    value.set(content, 0, content.length);
                 } finally {
                     IOUtils.closeStream(in);
                 }
                 processed = true;
-                return true;
-            } else {
-                return false;
             }
+
+            String line = null;
+            while ((line = cacheBr.readLine()) != null) {
+                String[] splits = line.split(";");
+                String[] segs = splits[0].split("/");
+                if (segs[segs.length - 1].equals(this.fileName)) {
+                    int[] pic = new int[4];
+                    String[] pics = splits[1].split(",");
+                    for (int i = 0; i < 4; i++) {
+                        pic[i] = Integer.parseInt(pics[i]);
+                    }
+                    double[] query = new double[4];
+                    String[] queries = splits[2].split(",");
+                    for (int i = 0; i < 4; i++) {
+                        query[i] = Double.parseDouble(queries[i]);
+                    }
+                    this.key = new ImgFilter.queryRes(splits[0], pic, query);
+                    return true;
+                }
+            }
+
+            cacheBr.close();
+            cacheBr = null;
+
+            return false;
         }
 
         @Override
-        public IntWritable getCurrentKey() throws IOException, InterruptedException {
+        public ImgFilter.queryRes getCurrentKey() throws IOException, InterruptedException {
             return key;
         }
 
@@ -102,12 +135,14 @@ public class FITSInputFormat extends FileInputFormat<IntWritable, BytesWritable>
 
         @Override
         public void close() throws IOException {
-
+            if (cacheBr != null) {
+                cacheBr.close();
+            }
         }
     }
 
     @Override
-    public RecordReader<IntWritable, BytesWritable> createRecordReader(
+    public RecordReader<ImgFilter.queryRes, BytesWritable> createRecordReader(
             InputSplit inputSplit, TaskAttemptContext taskAttemptContext
     ) throws IOException, InterruptedException {
         FITSRecordReader reader = new FITSRecordReader();
