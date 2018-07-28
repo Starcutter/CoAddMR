@@ -4,8 +4,14 @@ import nom.tam.fits.ImageHDU;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.*;
+import org.apache.hadoop.io.compress.CodecPool;
+import org.apache.hadoop.io.compress.CompressionCodec;
+import org.apache.hadoop.io.compress.CompressionCodecFactory;
+import org.apache.hadoop.io.compress.Decompressor;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
@@ -60,12 +66,18 @@ public class Query {
     }
 
     public static class RegisterMapper
-            extends Mapper<ImgFilter.queryRes, BytesWritable, IntWritable, BytesOrIntArrayWritable> {
+            extends Mapper<ImgFilter.queryRes, Text, IntWritable, BytesOrIntArrayWritable> {
 
         static Logger LOG = Logger.getLogger(RegisterMapper.class);
 
         private double[] query;
         private int picHeight, picWidth;
+
+        private Configuration conf;
+        private FileSystem fs;
+        private CompressionCodecFactory compressionCodecFactory;
+        private CompressionCodec codec;
+        private Decompressor decompressor;
 
         private IntWritable tmpKey = new IntWritable(0);
         private BytesWritable tmpValueGray = new BytesWritable();
@@ -74,7 +86,7 @@ public class Query {
         @Override
         public void setup(Context context
         ) throws IOException, InterruptedException {
-            Configuration conf = context.getConfiguration();
+            conf = context.getConfiguration();
             String queryStr = conf.get("query");
             String[] splits = queryStr.split(",");
             query = new double[4];
@@ -86,11 +98,25 @@ public class Query {
         }
 
         @Override
-        public void map(ImgFilter.queryRes key, BytesWritable value, Context context
+        public void map(ImgFilter.queryRes key, Text value, Context context
         ) throws IOException, InterruptedException {
             InputStream is = null;
             try {
-                is = new ByteArrayInputStream(value.getBytes(), 0, value.getLength());
+                Path imagePath = new Path(value.toString());
+                fs = imagePath.getFileSystem(conf);
+                if (compressionCodecFactory == null) {
+                    compressionCodecFactory = new CompressionCodecFactory(conf);
+                }
+                codec = compressionCodecFactory.getCodec(imagePath);
+
+                FSDataInputStream directIn = fs.open(imagePath);
+                if (codec != null) {
+                    decompressor = CodecPool.getDecompressor(codec);
+                    is = codec.createInputStream(directIn, decompressor);
+                } else {
+                    is = directIn;
+                }
+//                is = new ByteArrayInputStream(value.getBytes(), 0, value.getLength());
                 Fits f = new Fits(is);
                 ImageHDU hdu = (ImageHDU) f.getHDU(0);
                 float[][] image = (float[][]) hdu.getKernel();
@@ -105,6 +131,11 @@ public class Query {
                 }
 
                 IntWritable[] cnt = new IntWritable[picHeight * picWidth];
+                for (int i = 0; i < picHeight; i++) {
+                    for (int j = 0; j < picWidth; j++) {
+                        cnt[i * picWidth + j] = new IntWritable(0);
+                    }
+                }
                 float[] gray = new float[picHeight * picWidth];
 
                 float[][] fit = SyntheticPic.fitSize(tempPic,
@@ -115,10 +146,9 @@ public class Query {
                     i < (int)(picHeight * (info.query[1] - query[0]) / (query[1] - query[0])); i++) {
                     for (int j = (int) (picWidth * (info.query[2] - query[2]) / (query[3] - query[2]));
                          j < (int) (picWidth * (info.query[3] - query[2]) / (query[3] - query[2])); j++) {
-                        try {
+                        if (i * picWidth + j < picHeight * picWidth) {
                             gray[i * picWidth + j] = (fit[i - (int) (picHeight * (info.query[0] - query[0]) / (query[1] - query[0]))][j - (int) (picWidth * (info.query[2] - query[2]) / (query[3] - query[2]))]);
-                            cnt[i * picWidth + j].set(cnt[i * picWidth].get() + 1);
-                        } catch (ArrayIndexOutOfBoundsException e) {
+                            cnt[i * picWidth + j].set(cnt[i * picWidth + j].get() + 1);
                         }
                     }
                 }

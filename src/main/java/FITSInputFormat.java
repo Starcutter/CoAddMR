@@ -4,6 +4,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.IOUtils;
+import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.compress.*;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.RecordReader;
@@ -17,16 +18,17 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 
-public class FITSInputFormat extends FileInputFormat<ImgFilter.queryRes, BytesWritable> {
+public class FITSInputFormat extends FileInputFormat<ImgFilter.queryRes, Text> {
 
-    public class FITSRecordReader extends RecordReader<ImgFilter.queryRes, BytesWritable> {
+    public class FITSRecordReader extends RecordReader<ImgFilter.queryRes, Text> {
 
         private CompressionCodecFactory compressionCodecFactory;
         private CompressionCodec codec;
         private Decompressor decompressor;
 
         private ImgFilter.queryRes key;
-        private BytesWritable value = new BytesWritable();
+        private Text value;
+//        private BytesWritable value = new BytesWritable();
 
         private FileSplit split;
         private Path path;
@@ -56,22 +58,24 @@ public class FITSInputFormat extends FileInputFormat<ImgFilter.queryRes, BytesWr
             split =(FileSplit) inputSplit;
             path = split.getPath();
             fileName = path.getName();
-            fs = path.getFileSystem(conf);
-            directIn = fs.open(path);
-
-            start = split.getStart();
-            end = start + split.getLength();
-
-            codec = compressionCodecFactory.getCodec(path);
-            if (codec != null) {
-                decompressor = CodecPool.getDecompressor(codec);
-                in = codec.createInputStream(directIn, decompressor);
-            } else {
-                directIn.seek(start);
-                in = directIn;
-            }
-
-            processed = false;
+            value = new Text();
+            value.set(path.toUri().toString());
+//            fs = path.getFileSystem(conf);
+//            directIn = fs.open(path);
+//
+//            start = split.getStart();
+//            end = start + split.getLength();
+//
+//            codec = compressionCodecFactory.getCodec(path);
+//            if (codec != null) {
+//                decompressor = CodecPool.getDecompressor(codec);
+//                in = codec.createInputStream(directIn, decompressor);
+//            } else {
+//                directIn.seek(start);
+//                in = directIn;
+//            }
+//
+//            processed = false;
 
             assert taskAttemptContext != null;
             URI resFileURI = taskAttemptContext.getCacheFiles()[0];
@@ -81,16 +85,16 @@ public class FITSInputFormat extends FileInputFormat<ImgFilter.queryRes, BytesWr
 
         @Override
         public boolean nextKeyValue() throws IOException, InterruptedException {
-            if (!processed) {
-                content = new byte[(int) split.getLength()];
-                try {
-                    IOUtils.readFully(in, content, 0, content.length);
-                    value.set(content, 0, content.length);
-                } finally {
-                    IOUtils.closeStream(in);
-                }
-                processed = true;
-            }
+//            if (!processed) {
+//                content = new byte[(int) split.getLength()];
+//                try {
+//                    IOUtils.readFully(in, content, 0, content.length);
+//                    value.set(content, 0, content.length);
+//                } finally {
+//                    IOUtils.closeStream(in);
+//                }
+//                processed = true;
+//            }
 
             String line = null;
             while ((line = cacheBr.readLine()) != null) {
@@ -124,7 +128,7 @@ public class FITSInputFormat extends FileInputFormat<ImgFilter.queryRes, BytesWr
         }
 
         @Override
-        public BytesWritable getCurrentValue() throws IOException, InterruptedException {
+        public Text getCurrentValue() throws IOException, InterruptedException {
             return value;
         }
 
@@ -142,7 +146,7 @@ public class FITSInputFormat extends FileInputFormat<ImgFilter.queryRes, BytesWr
     }
 
     @Override
-    public RecordReader<ImgFilter.queryRes, BytesWritable> createRecordReader(
+    public RecordReader<ImgFilter.queryRes, Text> createRecordReader(
             InputSplit inputSplit, TaskAttemptContext taskAttemptContext
     ) throws IOException, InterruptedException {
         FITSRecordReader reader = new FITSRecordReader();
