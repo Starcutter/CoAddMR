@@ -1,6 +1,8 @@
 import nom.tam.fits.Fits;
 import nom.tam.fits.FitsException;
 import nom.tam.fits.ImageHDU;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.*;
@@ -146,6 +148,8 @@ public class Query {
     public static class CoAddReducer
             extends Reducer<IntWritable, BytesOrIntArrayWritable, IntWritable, BytesWritable> {
 
+        static Log LOG = LogFactory.getLog(CoAddReducer.class);
+
         private double[] query;
         private int picHeight, picWidth;
 
@@ -169,6 +173,10 @@ public class Query {
         public void reduce(IntWritable key, Iterable<BytesOrIntArrayWritable> values,
                            Context context
         ) throws IOException, InterruptedException {
+
+            for (int i = 0; i < 100; i++) {
+                LOG.error("########## fuck you ##########");
+            }
 
             float[] gray = new float[picHeight * picWidth];
             int[] cnt = new int[picHeight * picWidth];
@@ -209,6 +217,7 @@ public class Query {
 
             tmpValueGray.set(byteArray, 0, byteArray.length);
             context.write(key, tmpValueGray);
+            LOG.info("***** context.write key = " + key.get());
         }
     }
 
@@ -233,10 +242,7 @@ public class Query {
         Job job = Job.getInstance(conf, "query");
         job.setJarByClass(Query.class);
 
-        conf.set("query", args[1] + "," + args[2] + "," + args[3] + "," + args[4]);
-        conf.set("picHeight", String.valueOf(SyntheticPic.standard));
-        int picWidth = (int) (SyntheticPic.standard * (q[3] - q[2]) / (q[1] - q[0]));
-        conf.set("picWidth", String.valueOf(picWidth));
+        job.getConfiguration().set("query", args[1] + "," + args[2] + "," + args[3] + "," + args[4]);
 
         ArrayList<ImgFilter.queryRes> infos = ImgFilter.findPicture(q);
         Path resFilePath = ImgFilter.writeRes2HDFS(

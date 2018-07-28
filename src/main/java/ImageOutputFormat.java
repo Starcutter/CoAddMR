@@ -6,6 +6,7 @@ import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.mapreduce.RecordWriter;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.log4j.Logger;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -15,6 +16,8 @@ import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 
 public class ImageOutputFormat extends FileOutputFormat<IntWritable, BytesWritable> {
+
+    static Logger LOG = Logger.getLogger(ImageOutputFormat.class);
 
     public static class ImageRecordWriter extends RecordWriter<IntWritable, BytesWritable> {
 
@@ -77,6 +80,7 @@ public class ImageOutputFormat extends FileOutputFormat<IntWritable, BytesWritab
             }
 
             Path imagePath = new Path(this.outPath, "mosaic-" + queryId + ".png");
+            LOG.info("********output image path:" + imagePath.toString());
             OutputStream imageOut = this.outFs.create(imagePath);
             ImageIO.write(bImage, "png", imageOut);
             imageOut.close();
