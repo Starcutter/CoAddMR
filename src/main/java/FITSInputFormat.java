@@ -1,49 +1,57 @@
+import nom.tam.fits.Fits;
+import nom.tam.fits.FitsException;
+import nom.tam.fits.Header;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FSDataInputStream;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.io.BytesWritable;
-import org.apache.hadoop.io.IOUtils;
+import org.apache.hadoop.fs.*;
 import org.apache.hadoop.io.Text;
-import org.apache.hadoop.io.compress.*;
+import org.apache.hadoop.io.compress.CodecPool;
+import org.apache.hadoop.io.compress.CompressionCodec;
+import org.apache.hadoop.io.compress.CompressionCodecFactory;
+import org.apache.hadoop.io.compress.Decompressor;
 import org.apache.hadoop.mapreduce.InputSplit;
+import org.apache.hadoop.mapreduce.JobContext;
 import org.apache.hadoop.mapreduce.RecordReader;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.input.FileSplit;
+import org.apache.log4j.Logger;
 
 import java.io.BufferedReader;
-import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
 
 public class FITSInputFormat extends FileInputFormat<ImgFilter.queryRes, Text> {
 
-    public class FITSRecordReader extends RecordReader<ImgFilter.queryRes, Text> {
+    static Logger LOG = Logger.getLogger(FITSInputFormat.class);
+
+    public static class FITSRecordReader extends RecordReader<ImgFilter.queryRes, Text> {
 
         private CompressionCodecFactory compressionCodecFactory;
         private CompressionCodec codec;
         private Decompressor decompressor;
 
+        private Query[] queries;
+
         private ImgFilter.queryRes key;
         private Text value;
-//        private BytesWritable value = new BytesWritable();
 
         private FileSplit split;
         private Path path;
         private String fileName;
         private FileSystem fs;
-        private long start ;
+        private long start;
         private long end;
+
+        private int camcol;
+        private char band;
+        private double minRa, maxRa, minDec, maxDec;
 
         private FSDataInputStream directIn;
         private InputStream in;
-        private BufferedReader cacheBr;
 
-        private byte[] content;
-
-        private boolean processed;
+        private int lastQueryId;
 
         @Override
         public void initialize(InputSplit inputSplit, TaskAttemptContext taskAttemptContext
@@ -58,68 +66,139 @@ public class FITSInputFormat extends FileInputFormat<ImgFilter.queryRes, Text> {
             split =(FileSplit) inputSplit;
             path = split.getPath();
             fileName = path.getName();
+            String[] splits = fileName.split("-");
+            camcol = Integer.parseInt(splits[3]);
+            band = splits[1].charAt(0);
             value = new Text();
             value.set(path.toUri().toString());
-//            fs = path.getFileSystem(conf);
-//            directIn = fs.open(path);
-//
-//            start = split.getStart();
-//            end = start + split.getLength();
-//
-//            codec = compressionCodecFactory.getCodec(path);
-//            if (codec != null) {
-//                decompressor = CodecPool.getDecompressor(codec);
-//                in = codec.createInputStream(directIn, decompressor);
-//            } else {
-//                directIn.seek(start);
-//                in = directIn;
-//            }
-//
-            processed = false;
 
-            assert taskAttemptContext != null;
-            URI resFileURI = taskAttemptContext.getCacheFiles()[0];
-            String resFileName = new Path(resFileURI.getPath()).getName();
-            cacheBr = new BufferedReader(new FileReader(resFileName));
+            fs = path.getFileSystem(conf);
+            directIn = fs.open(path);
+
+            start = split.getStart();
+            end = start + split.getLength();
+
+            codec = compressionCodecFactory.getCodec(path);
+            if (codec != null) {
+                decompressor = CodecPool.getDecompressor(codec);
+                in = codec.createInputStream(directIn, decompressor);
+            } else {
+                directIn.seek(start);
+                in = directIn;
+            }
+
+            getRect(in);
+
+            queries = Query.getQueries(conf.get("query"));
+            lastQueryId = -1;
+        }
+
+        protected void getRect(InputStream in) throws IOException {
+            try {
+                Fits fits = new Fits(in);
+                Header header = fits.getHDU(0).getHeader();
+                double referX = header.getDoubleValue("CRPIX1");
+                double referY = header.getDoubleValue("CRPIX2");
+                double referRa = header.getDoubleValue("CRVAL1");
+                double referDec = header.getDoubleValue("CRVAL2");
+                double raDeg = header.getDoubleValue("CD1_2");
+                double decDeg = header.getDoubleValue("CD2_1");
+                minRa = referRa - referY * raDeg;
+                maxRa = referRa + (1489 - referY) * raDeg;
+                minDec = referDec - referX * decDeg;
+                maxDec = referDec + (2048 - referX) * decDeg;
+            } catch (FitsException e) {
+                throw new IOException();
+            }
+            /*
+            byte[] tempbytes = new byte[80];
+            int byteread = 0;
+            int num = 1;
+            while(num < 66) {
+                byteread = in.read(tempbytes);
+                num++;
+            }
+            byte[] crpix1 = new byte[80];
+            byte[] crpix2 = new byte[80];
+            byte[] crval1 = new byte[80];
+            byte[] crval2 = new byte[80];
+            byte[] cd1 = new byte[80];
+            byte[] cd2 = new byte[80];
+            byteread = in.read(crpix1);
+            byteread = in.read(crpix2);
+            byteread = in.read(crval1);
+            byteread = in.read(crval2);
+            byteread = in.read(tempbytes);
+            byteread = in.read(cd1);
+            byteread = in.read(cd2);
+            double referX = ImgFilter.asciiToDouble(crpix1);
+            double referY = ImgFilter.asciiToDouble(crpix2);
+            double referRa = ImgFilter.asciiToDouble(crval1);
+            double referDec = ImgFilter.asciiToDouble(crval2);
+            double raDeg = ImgFilter.asciiToDouble(cd1);
+            double decDeg = ImgFilter.asciiToDouble(cd2);
+            minRa = referRa - referY * raDeg;
+            maxRa = referRa + (1489 - referY) * raDeg;
+            minDec = referDec - referX * decDeg;
+            maxDec = referDec + (2048 - referX) * decDeg;
+            */
         }
 
         @Override
         public boolean nextKeyValue() throws IOException, InterruptedException {
-//            if (!processed) {
-//                content = new byte[(int) split.getLength()];
-//                try {
-//                    IOUtils.readFully(in, content, 0, content.length);
-//                    value.set(content, 0, content.length);
-//                } finally {
-//                    IOUtils.closeStream(in);
-//                }
-//                processed = true;
-//            }
+            while (lastQueryId < queries.length - 1) {
+                lastQueryId++;
+                if (!queries[lastQueryId].isOverlapping(camcol, band)) {
+                    continue;
+                }
+                double[] query = queries[lastQueryId].query;
+                int[] picOut = new int[4];
+                double[] queryOut = new double[4];
+                int picHeight = 1489;
+                int picWidth = 2048;
+                if(minRa < query[1] && maxRa > query[0] &&
+                        minDec < query[3] && maxDec > query[2]) {
+                    if(minRa < query[0]) {
+                        picOut[0] = (int) (picHeight * (query[0] - minRa) / (maxRa - minRa));
+                        queryOut[0] = query[0];
+                    }
+                    else {
+                        picOut[0] = 0;
+                        queryOut[0] = minRa;
+                    }
 
-            String line = null;
-            while ((line = cacheBr.readLine()) != null) {
-                String[] splits = line.split(";");
-                String[] segs = splits[0].split("/");
-                if (segs[segs.length - 1].equals(this.fileName)) {
-                    int[] pic = new int[4];
-                    String[] pics = splits[1].split(",");
-                    for (int i = 0; i < 4; i++) {
-                        pic[i] = Integer.parseInt(pics[i]);
+                    if(maxRa < query[1]) {
+                        picOut[1] = picHeight;
+                        queryOut[1] = maxRa;
                     }
-                    double[] query = new double[4];
-                    String[] queries = splits[2].split(",");
-                    for (int i = 0; i < 4; i++) {
-                        query[i] = Double.parseDouble(queries[i]);
+                    else {
+                        picOut[1] = (int) (picHeight * (query[1] - minRa) / (maxRa - minRa));
+                        queryOut[1] = query[1];
                     }
-                    this.key = new ImgFilter.queryRes(splits[0], pic, query);
+
+                    if(minDec < query[2]) {
+                        picOut[2] = (int) (picWidth * (query[2] - minDec) / (maxDec - minDec));
+                        queryOut[2] = query[2];
+                    }
+                    else {
+                        picOut[2] = 0;
+                        queryOut[2] = minDec;
+                    }
+
+                    if(maxDec < query[3]) {
+                        picOut[3] = picWidth;
+                        queryOut[3] = maxDec;
+                    }
+                    else {
+                        picOut[3] = (int) (picWidth * (query[3] - minDec) / (maxDec - minDec));
+                        queryOut[3] = query[3];
+                    }
+
+                    key = new ImgFilter.queryRes(path.toUri().getPath(),
+                            picOut, queryOut, lastQueryId);
                     return true;
                 }
             }
-
-            processed = true;
-            cacheBr.close();
-            cacheBr = null;
-
             return false;
         }
 
@@ -135,23 +214,64 @@ public class FITSInputFormat extends FileInputFormat<ImgFilter.queryRes, Text> {
 
         @Override
         public float getProgress() throws IOException, InterruptedException {
-            return processed ? 1.0f : 0.0f;
+            return ((float) (lastQueryId + 1)) / queries.length;
         }
 
         @Override
         public void close() throws IOException {
-            if (cacheBr != null) {
-                cacheBr.close();
+            if (in != null) {
+                in.close();
             }
         }
+    }
+
+    protected static final PathFilter NonHiddenFileFilter = new PathFilter() {
+        @Override
+        public boolean accept(Path path) {
+            String name = path.getName();
+            return !name.startsWith("_") && !name.startsWith(".");
+        }
+    };
+
+    protected void listStatus(final FileSystem fs, Path dir, Query[] queries,
+                              final List<FileStatus> result
+    ) throws IOException {
+        FileStatus[] statuses = fs.listStatus(dir, NonHiddenFileFilter);
+        for (FileStatus status : statuses) {
+            if (status.isDirectory()) {
+                listStatus(fs, status.getPath(), queries, result);
+            } else {
+                String filename = status.getPath().getName();
+                String[] splits = filename.split("-");
+                int camcol = Integer.parseInt(splits[3]);
+                char band = splits[1].charAt(0);
+                for (Query query : queries) {
+                    if (query.isOverlapping(camcol, band)) {
+                        result.add(status);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    @Override
+    protected List<FileStatus> listStatus(JobContext job) throws IOException {
+        Configuration jobConf = job.getConfiguration();
+        Query[] queries = Query.getQueries(jobConf.get("query"));
+        List<FileStatus> result = new ArrayList<FileStatus>();
+        Path[] inputDirs = getInputPaths(job);
+        for (Path dir : inputDirs) {
+            FileSystem fs = dir.getFileSystem(jobConf);
+            listStatus(fs, dir, queries, result);
+        }
+        return result;
     }
 
     @Override
     public RecordReader<ImgFilter.queryRes, Text> createRecordReader(
             InputSplit inputSplit, TaskAttemptContext taskAttemptContext
     ) throws IOException, InterruptedException {
-        FITSRecordReader reader = new FITSRecordReader();
-        reader.initialize(inputSplit, taskAttemptContext);
-        return reader;
+        return new FITSRecordReader();
     }
 }

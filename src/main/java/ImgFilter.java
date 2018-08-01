@@ -37,6 +37,12 @@ public class ImgFilter {
         String name;
         int []pic = new int[4];
         double []query = new double[4];
+        int queryId;
+
+        queryRes(String name, int []pic, double []query, int queryId) {
+            this(name, pic, query);
+            this.queryId = queryId;
+        }
 
         queryRes(String name, int []pic, double []query) {
             this.name = name;
@@ -59,7 +65,8 @@ public class ImgFilter {
         }
 
         public String toString() {
-            StringBuilder sb = new StringBuilder(name + ";");
+            StringBuilder sb = new StringBuilder(queryId + ";");
+            sb.append(name).append(";");
             sb.append(pic[0]);
             for(int i = 1; i < 4; i++) {
                 sb.append(",").append(pic[i]);
@@ -74,6 +81,7 @@ public class ImgFilter {
 
         @Override
         public void write(DataOutput dataOutput) throws IOException {
+            dataOutput.writeInt(queryId);
             new Text(name).write(dataOutput);
             for (int i = 0; i < 4; i++) {
                 dataOutput.writeInt(pic[i]);
@@ -85,6 +93,7 @@ public class ImgFilter {
 
         @Override
         public void readFields(DataInput dataInput) throws IOException {
+            queryId = dataInput.readInt();
             Text tmp = new Text();
             tmp.readFields(dataInput);
             name = tmp.toString();

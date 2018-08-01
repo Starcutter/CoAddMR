@@ -24,7 +24,8 @@ public class ImageOutputFormat extends FileOutputFormat<IntWritable, BytesWritab
         private FileSystem outFs;
         private Path outPath;
 
-        private double[] query;
+        private Query[] queries;
+
         private int picHeight, picWidth;
 
         public ImageRecordWriter(TaskAttemptContext taskAttemptContext, Path outPath
@@ -34,19 +35,26 @@ public class ImageOutputFormat extends FileOutputFormat<IntWritable, BytesWritab
             this.outPath = outPath;
 
             String queryStr = conf.get("query");
+            queries = Query.getQueries(queryStr);
+            /*
             String[] splits = queryStr.split(",");
             this.query = new double[4];
             for (int i = 0; i < 4; i++) {
                 this.query[i] = Double.parseDouble(splits[i]);
             }
+            */
             this.picHeight = SyntheticPic.standard;
-            this.picWidth = (int) (this.picHeight * (query[3] - query[2]) / (query[1] - query[0]));
+//            this.picWidth = (int) (this.picHeight * (query[3] - query[2]) / (query[1] - query[0]));
         }
 
         @Override
         public void write(IntWritable key, BytesWritable value
         ) throws IOException, InterruptedException {
             int queryId = key.get();
+            picWidth = (int) (this.picHeight
+                    * (queries[queryId].query[3] - queries[queryId].query[2])
+                    / (queries[queryId].query[1] - queries[queryId].query[0]));
+
             float[] gray = new float[picHeight * picWidth];
             ByteBuffer byteBuffer = ByteBuffer.wrap(value.getBytes());
             FloatBuffer floatBuffer = byteBuffer.asFloatBuffer();
