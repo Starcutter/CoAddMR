@@ -75,7 +75,7 @@ public class FITSInputFormat extends FileInputFormat<ImgFilter.queryRes, Text> {
 //                in = directIn;
 //            }
 //
-//            processed = false;
+            processed = false;
 
             assert taskAttemptContext != null;
             URI resFileURI = taskAttemptContext.getCacheFiles()[0];
@@ -116,6 +116,7 @@ public class FITSInputFormat extends FileInputFormat<ImgFilter.queryRes, Text> {
                 }
             }
 
+            processed = true;
             cacheBr.close();
             cacheBr = null;
 

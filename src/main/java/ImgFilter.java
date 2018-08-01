@@ -1,9 +1,8 @@
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.*;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
+import org.apache.hadoop.io.compress.*;
 
 import java.io.*;
 import java.util.ArrayList;
@@ -15,17 +14,19 @@ public class ImgFilter {
 
     public static class picInfo {
         int run, field, camcol;
+        String band;
         double []coordinate = new double[4]; //raMin, raMax, decMin, decMax;
 
         public String toString() {
-            return "301/" + run + "/" + camcol + "/frame-g-" +
+            return "301/" + run + "/" + camcol + "/frame-" + band + "-" +
                     String.format("%06d", run) + "-" + camcol + "-" + String.format("%04d", field) + ".fits.bz2";
         }
 
-        picInfo(String init[]) {
+        picInfo(String init[], String band) {
             this.run = Integer.parseInt(init[0]);
             this.field = Integer.parseInt(init[1]);
             this.camcol = Integer.parseInt(init[2]);
+            this.band = band;
             for(int i = 0; i < 4; ++i) {
                 this.coordinate[i] = Double.parseDouble(init[i + 3]);
             }
@@ -51,6 +52,10 @@ public class ImgFilter {
                 this.pic[i] = pic[i];
                 this.query[i] = query[i];
             }
+        }
+
+        public void setName(String name) {
+            this.name = name;
         }
 
         public String toString() {
@@ -102,7 +107,7 @@ public class ImgFilter {
             String line = null;
             while((line=reader.readLine()) != null){
                 String item[] = line.split(",");
-                cacheCsv.add(new picInfo(item));
+                cacheCsv.add(new picInfo(item, "g"));
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -152,6 +157,135 @@ public class ImgFilter {
                 }
 
                 res.add(new queryRes(pic, picOut, queryOut));
+            }
+        }
+        return res;
+    }
+
+    public static queryRes queryOverlapping(double[] query , InputStream in) {
+        try {
+            byte[] tempbytes = new byte[80];
+            int byteread = 0;
+            int num = 1;
+            while(num < 66) {
+                byteread = in.read(tempbytes);
+                num++;
+            }
+            byte[] crpix1 = new byte[80];
+            byte[] crpix2 = new byte[80];
+            byte[] crval1 = new byte[80];
+            byte[] crval2 = new byte[80];
+            byte[] cd1 = new byte[80];
+            byte[] cd2 = new byte[80];
+            byteread = in.read(crpix1);
+            byteread = in.read(crpix2);
+            byteread = in.read(crval1);
+            byteread = in.read(crval2);
+            byteread = in.read(tempbytes);
+            byteread = in.read(cd1);
+            byteread = in.read(cd2);
+            double referX = asciiToDouble(crpix1);
+            double referY = asciiToDouble(crpix2);
+            double referRa = asciiToDouble(crval1);
+            double referDec = asciiToDouble(crval2);
+            double raDeg = asciiToDouble(cd1);
+            double decDeg = asciiToDouble(cd2);
+            double minRa = referRa - referY * raDeg;
+            double maxRa = referRa + (1489 - referY) * raDeg;
+            double minDec = referDec - referX * decDeg;
+            double maxDec = referDec + (2048 - referX) * decDeg;
+            //System.out.println(minRa + "," + maxRa + "," + minDec + "," + maxDec);
+            int[] picOut = new int[4];
+            double[] queryOut = new double[4];
+            int picHeight = 1489;
+            int picWidth = 2048;
+            if(minRa < query[1] && maxRa > query[0] &&
+                    minDec < query[3] && maxDec > query[2]) {
+                if(minRa < query[0]) {
+                    picOut[0] = (int) (picHeight * (query[0] - minRa) / (maxRa - minRa));
+                    queryOut[0] = query[0];
+                }
+                else {
+                    picOut[0] = 0;
+                    queryOut[0] = minRa;
+                }
+
+                if(maxRa < query[1]) {
+                    picOut[1] = picHeight;
+                    queryOut[1] = maxRa;
+                }
+                else {
+                    picOut[1] = (int) (picHeight * (query[1] - minRa) / (maxRa - minRa));
+                    queryOut[1] = query[1];
+                }
+
+                if(minDec < query[2]) {
+                    picOut[2] = (int) (picWidth * (query[2] - minDec) / (maxDec - minDec));
+                    queryOut[2] = query[2];
+                }
+                else {
+                    picOut[2] = 0;
+                    queryOut[2] = minDec;
+                }
+
+                if(maxDec < query[3]) {
+                    picOut[3] = picWidth;
+                    queryOut[3] = maxDec;
+                }
+                else {
+                    picOut[3] = (int) (picWidth * (query[3] - minDec) / (maxDec - minDec));
+                    queryOut[3] = query[3];
+                }
+
+                return new queryRes("zhj", picOut, queryOut);
+            }
+        } catch(Exception e1) {
+            e1.printStackTrace();
+        }
+        return null;
+    }
+
+    public static Double asciiToDouble(byte[] source) {
+        StringBuffer tmp = new StringBuffer();
+        for(int i = 0; i < 80; i++) {
+            char temp = (char) source[i];
+            tmp.append(temp);
+        }
+        String tempString = tmp.toString();
+        int pos1 = tempString.indexOf("=");
+        int pos2 = tempString.indexOf("/");
+        String dst = tempString.substring(pos1 + 1, pos2);
+        double result = Double.parseDouble(dst);
+
+        return result;
+    }
+
+    public static CompressionCodecFactory factory = null;
+
+    public static ArrayList<queryRes> filter(double query[], String band,
+                                             Path path, FileSystem fs
+                                             ) throws IOException {
+        ArrayList<queryRes> res = new ArrayList<queryRes>();
+        FileStatus[] files = fs.listStatus(path);
+        for (FileStatus file : files) {
+            if (file.isDirectory()) {
+                res.addAll(filter(query, band, file.getPath(), fs));
+            } else if (file.isFile()) {
+                String filename = file.getPath().getName();
+                if (filename.split("-")[1].equals(band)) {
+                    FSDataInputStream directIn = fs.open(file.getPath());
+                    if (factory == null) {
+                        factory = new CompressionCodecFactory(fs.getConf());
+                    }
+                    CompressionCodec codec = factory.getCodec(file.getPath());
+                    Decompressor decompressor = CodecPool.getDecompressor(codec);
+                    CompressionInputStream cIn = codec.createInputStream(directIn, decompressor);
+                    queryRes singleRes = queryOverlapping(query, cIn);
+                    if (singleRes != null) {
+                        singleRes.setName(file.getPath().toUri().getPath());
+                        res.add(singleRes);
+                    }
+                }
             }
         }
         return res;

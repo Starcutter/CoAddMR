@@ -131,12 +131,22 @@ public class SyntheticPic {
     }
     
     public static void main(String[] args) throws Exception {
-        if (args.length >= 4) {
+        // [raMin] [raMax] [decMin] [decMax] [band] [0|1]
+        // 0 for local csv, 1 for using header
+        if (args.length >= 6) {
             double[] q = new double[4];
             for (int i = 0; i < 4; i++) {
                 q[i] = Double.parseDouble(args[i]);
             }
-            ArrayList<ImgFilter.queryRes> infos = ImgFilter.main(q);
+            ArrayList<ImgFilter.queryRes> infos;
+            if (args[5].equals("0")) {
+                infos = ImgFilter.main(q);
+            } else {
+                Path fitsPath = new Path("301/");
+                Configuration conf = new Configuration();
+                FileSystem fs = fitsPath.getFileSystem(conf);
+                infos = ImgFilter.filter(q, args[4], fitsPath, fs);
+            }
             System.out.println("Overlapping picture num = " + infos.size());
             File output = new File("i.jpg");
             ImageIO.write(synPic(q, infos), "jpg", output);

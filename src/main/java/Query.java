@@ -19,7 +19,6 @@ import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.log4j.Logger;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
@@ -35,22 +34,28 @@ public class Query {
         }
     }
 
+    public static class FloatArrayWritable extends ArrayWritable {
+        public FloatArrayWritable() {
+            super(FloatWritable.class);
+        }
+    }
+
     @SuppressWarnings("unchecked")
-    public static class BytesOrIntArrayWritable extends GenericWritable {
+    public static class FloatOrIntArrayWritable extends GenericWritable {
 
         private static Class<? extends Writable>[] CLASSES = null;
 
         static {
             CLASSES = (Class<? extends Writable>[]) new Class[]{
-                    BytesWritable.class,
+                    FloatArrayWritable.class,
                     IntArrayWritable.class
             };
         }
 
-        public BytesOrIntArrayWritable() {
+        public FloatOrIntArrayWritable() {
         }
 
-        public BytesOrIntArrayWritable(Writable instance) {
+        public FloatOrIntArrayWritable(Writable instance) {
             set(instance);
         }
 
@@ -61,12 +66,12 @@ public class Query {
 
         @Override
         public String toString() {
-            return "BytesOrIntArrayWritable [getTypes()=" + Arrays.toString(getTypes()) + "]";
+            return "FloatOrIntArrayWritable [getTypes()=" + Arrays.toString(getTypes()) + "]";
         }
     }
 
     public static class RegisterMapper
-            extends Mapper<ImgFilter.queryRes, Text, IntWritable, BytesOrIntArrayWritable> {
+            extends Mapper<ImgFilter.queryRes, Text, IntWritable, FloatOrIntArrayWritable> {
 
         static Logger LOG = Logger.getLogger(RegisterMapper.class);
 
@@ -80,8 +85,8 @@ public class Query {
         private Decompressor decompressor;
 
         private IntWritable tmpKey = new IntWritable(0);
-        private BytesWritable tmpValueGray = new BytesWritable();
-        private IntArrayWritable tmpValueCnt = new IntArrayWritable();
+        private ArrayWritable tmpValueGray = new FloatArrayWritable();
+        private ArrayWritable tmpValueCnt = new IntArrayWritable();
 
         @Override
         public void setup(Context context
@@ -98,85 +103,100 @@ public class Query {
         }
 
         @Override
-        public void map(ImgFilter.queryRes key, Text value, Context context
+        public void map(ImgFilter.queryRes info, Text value, Context context
         ) throws IOException, InterruptedException {
             InputStream is = null;
-            try {
-                Path imagePath = new Path(value.toString());
-                fs = imagePath.getFileSystem(conf);
-                if (compressionCodecFactory == null) {
-                    compressionCodecFactory = new CompressionCodecFactory(conf);
-                }
-                codec = compressionCodecFactory.getCodec(imagePath);
+            Path imagePath = new Path(value.toString());
+            fs = imagePath.getFileSystem(conf);
+            if (compressionCodecFactory == null) {
+                compressionCodecFactory = new CompressionCodecFactory(conf);
+            }
+            codec = compressionCodecFactory.getCodec(imagePath);
 
-                FSDataInputStream directIn = fs.open(imagePath);
-                if (codec != null) {
-                    decompressor = CodecPool.getDecompressor(codec);
-                    is = codec.createInputStream(directIn, decompressor);
-                } else {
-                    is = directIn;
-                }
-//                is = new ByteArrayInputStream(value.getBytes(), 0, value.getLength());
+            FSDataInputStream directIn = fs.open(imagePath);
+            if (codec != null) {
+                decompressor = CodecPool.getDecompressor(codec);
+                is = codec.createInputStream(directIn, decompressor);
+            } else {
+                is = directIn;
+            }
+            float[][] image = null;
+            try {
                 Fits f = new Fits(is);
                 ImageHDU hdu = (ImageHDU) f.getHDU(0);
-                float[][] image = (float[][]) hdu.getKernel();
+                image = (float[][]) hdu.getKernel();
                 f.close();
-
-                ImgFilter.queryRes info = key;
-                float [][] tempPic = new float[info.pic[1] - info.pic[0]][info.pic[3] - info.pic[2]];
-                for(int i = info.pic[0]; i < info.pic[1]; i++) {
-                    for (int j = info.pic[2]; j < info.pic[3]; j++) {
-                        tempPic[i - info.pic[0]][j - info.pic[2]] = image[i][j];
-                    }
-                }
-
-                IntWritable[] cnt = new IntWritable[picHeight * picWidth];
-                for (int i = 0; i < picHeight; i++) {
-                    for (int j = 0; j < picWidth; j++) {
-                        cnt[i * picWidth + j] = new IntWritable(0);
-                    }
-                }
-                float[] gray = new float[picHeight * picWidth];
-
-                float[][] fit = SyntheticPic.fitSize(tempPic,
-                        (int)(picHeight * (info.query[1] - info.query[0]) / (query[1] - query[0])),
-                        (int)(picWidth * (info.query[3] - info.query[2]) / (query[3] - query[2])));
-
-                for (int i = (int)(picHeight * (info.query[0] - query[0]) / (query[1] - query[0]));
-                    i < (int)(picHeight * (info.query[1] - query[0]) / (query[1] - query[0])); i++) {
-                    for (int j = (int) (picWidth * (info.query[2] - query[2]) / (query[3] - query[2]));
-                         j < (int) (picWidth * (info.query[3] - query[2]) / (query[3] - query[2])); j++) {
-                        if (i * picWidth + j < picHeight * picWidth) {
-                            gray[i * picWidth + j] = (fit[i - (int) (picHeight * (info.query[0] - query[0]) / (query[1] - query[0]))][j - (int) (picWidth * (info.query[2] - query[2]) / (query[3] - query[2]))]);
-                            cnt[i * picWidth + j].set(cnt[i * picWidth + j].get() + 1);
-                        }
-                    }
-                }
-
-                // convert float[][] gray to BytesWritable and int[][] cnt to IntArrayWritable
-                byte[] byteArray = new byte[picHeight * picWidth * 4];
-                ByteBuffer byteBuffer = ByteBuffer.wrap(byteArray);
-                FloatBuffer floatBuffer = byteBuffer.asFloatBuffer();
-                floatBuffer.put(gray);
-
-                tmpValueGray.set(byteArray, 0, byteArray.length);
-                context.write(tmpKey, new BytesOrIntArrayWritable(tmpValueGray));
-
-                tmpValueCnt.set(cnt);
-                context.write(tmpKey, new BytesOrIntArrayWritable(tmpValueCnt));
-
             } catch (FitsException e) {
                 LOG.error(e.getMessage());
-            } finally {
-                if (is != null) {
-                    is.close();
+                return;
+            }
+
+            IntWritable[] cnt = new IntWritable[picHeight * picWidth];
+            for (int i = 0; i < picHeight; i++) {
+                for (int j = 0; j < picWidth; j++) {
+                    cnt[i * picWidth + j] = new IntWritable(0);
                 }
             }
+            FloatWritable[] gray = new FloatWritable[picHeight * picWidth];
+            for (int i = 0; i < picHeight; i++) {
+                for (int j = 0; j < picWidth; j++) {
+                    gray[i * picWidth + j] = new FloatWritable(0);
+                }
+            }
+
+            int h = info.pic[1] - info.pic[0];
+            int w = info.pic[3] - info.pic[2];
+            int height = (int)(picHeight * (info.query[1] - info.query[0]) / (query[1] - query[0]));
+            int width = (int)(picWidth * (info.query[3] - info.query[2]) / (query[3] - query[2]));
+
+            double hPropor = 1.0 * (h - 1) / height;
+            double wPropor = 1.0 * (w - 1) / width;
+            try {
+                for (int i = 0; i < height; i++) {
+                    for (int j = 0; j < width; j++) {
+                        int x = i + (int) (picHeight * (info.query[0] - query[0]) / (query[1] - query[0]));
+                        int y = j + (int) (picWidth * (info.query[2] - query[2]) / (query[3] - query[2]));
+                        int index = x * picWidth + y;
+                        if (j * wPropor + 1 >= w) {
+                            if (i * hPropor + 1 >= h) {
+                                gray[index].set(image[h + info.pic[0]][w + info.pic[2]]);
+                            }
+                            else {
+                                gray[index].set(
+                                        (float) (image[(int) (i * hPropor) + info.pic[0]][w + info.pic[2]] * ((int) (i * hPropor + 1) - (i * hPropor)) + image[(int) (i * hPropor) + 1 + info.pic[0]][w + info.pic[2]] * ((i * hPropor) - (int) (i * hPropor)))
+                                );
+                            }
+                        } else {
+                            if (i * hPropor + 1 >= h) {
+                                gray[index].set(
+                                        (float) (image[h + info.pic[0]][(int) (j * wPropor) + info.pic[2]] * ((int) (j * wPropor + 1) - (j * wPropor))
+                                        + image[h + info.pic[0]][(int) (j * wPropor) + 1 + info.pic[2]] * ((j * wPropor) - (int) (j * wPropor)))
+                                );
+                            }
+                            else {
+                                gray[index].set(
+                                        (float) ((float) (image[(int) (i * hPropor) + info.pic[0]][(int) (j * wPropor) + info.pic[2]] * ((int) (i * hPropor + 1) - (i * hPropor)) + image[(int) (i * hPropor) + 1 + info.pic[0]][(int) (j * wPropor) + info.pic[2]] * ((i * hPropor) - (int) (i * hPropor)))
+                                        * ((int) (j * wPropor + 1) - (j * wPropor))
+                                        + (float) (image[(int) (i * hPropor) + info.pic[0]][(int) (j * wPropor) + 1 + info.pic[2]] * ((int) (i * hPropor + 1) - (i * hPropor)) + image[(int) (i * hPropor) + 1 + info.pic[0]][(int) (j * wPropor) + 1 + info.pic[2]] * ((i * hPropor) - (int) (i * hPropor)))
+                                        * ((j * wPropor) - (int) (j * wPropor)))
+                                );
+                            }
+                        }
+                        cnt[index].set(1);
+
+                    }
+                }
+            } catch (ArrayIndexOutOfBoundsException e) {}
+
+            tmpValueGray.set(gray);
+            context.write(tmpKey, new FloatOrIntArrayWritable(tmpValueGray));
+            tmpValueCnt.set(cnt);
+            context.write(tmpKey, new FloatOrIntArrayWritable(tmpValueCnt));
         }
     }
 
     public static class CoAddReducer
-            extends Reducer<IntWritable, BytesOrIntArrayWritable, IntWritable, BytesWritable> {
+            extends Reducer<IntWritable, FloatOrIntArrayWritable, IntWritable, BytesWritable> {
 
         static Log LOG = LogFactory.getLog(CoAddReducer.class);
 
@@ -200,36 +220,31 @@ public class Query {
         }
 
         @Override
-        public void reduce(IntWritable key, Iterable<BytesOrIntArrayWritable> values,
+        public void reduce(IntWritable key, Iterable<FloatOrIntArrayWritable> values,
                            Context context
         ) throws IOException, InterruptedException {
-
-            for (int i = 0; i < 100; i++) {
-                LOG.error("########## fuck you ##########");
-            }
 
             float[] gray = new float[picHeight * picWidth];
             int[] cnt = new int[picHeight * picWidth];
 
-            for (BytesOrIntArrayWritable value : values) {
+            for (FloatOrIntArrayWritable value : values) {
                 Writable rawWritable = value.get();
-                if (rawWritable instanceof BytesWritable) {
-                    BytesWritable bytesWritable = (BytesWritable) rawWritable;
-                    float[] tmpGray = new float[bytesWritable.getLength() / 4];
-                    ByteBuffer byteBuffer = ByteBuffer.wrap(bytesWritable.getBytes());
-                    FloatBuffer floatBuffer = byteBuffer.asFloatBuffer();
-                    floatBuffer.get(tmpGray);
-
+                if (rawWritable instanceof FloatArrayWritable) {
+                    FloatArrayWritable floatArrayWritable = (FloatArrayWritable) rawWritable;
+                    Writable[] tmpGray = floatArrayWritable.get();
                     for (int i = 0; i < picHeight; i++) {
                         for (int j = 0; j < picWidth; j++) {
-                            gray[i * picWidth + j] += tmpGray[i * picWidth + j];
+                            FloatWritable floatWritable = (FloatWritable) tmpGray[i * picWidth + j];
+                            gray[i * picWidth + j] += floatWritable.get();
                         }
                     }
                 } else if (rawWritable instanceof IntArrayWritable) {
-                    Writable[] tmpCnt = ((IntArrayWritable) rawWritable).get();
+                    IntArrayWritable intArrayWritable = (IntArrayWritable) rawWritable;
+                    Writable[] tmpCnt = intArrayWritable.get();
                     for (int i = 0; i < picHeight; i++) {
                         for (int j = 0; j < picWidth; j++) {
-                            cnt[i * picWidth + j] += ((IntWritable) tmpCnt[i * picWidth + j]).get();
+                            IntWritable intWritable = (IntWritable) tmpCnt[i * picWidth + j];
+                            cnt[i * picWidth + j] += intWritable.get();
                         }
                     }
                 }
@@ -285,7 +300,7 @@ public class Query {
         job.setNumReduceTasks(1);
 
         job.setMapOutputKeyClass(IntWritable.class);
-        job.setMapOutputValueClass(BytesOrIntArrayWritable.class);
+        job.setMapOutputValueClass(FloatOrIntArrayWritable.class);
         job.setOutputKeyClass(IntWritable.class);
         job.setOutputValueClass(BytesWritable.class);
 
