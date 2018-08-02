@@ -9,9 +9,12 @@ import org.apache.hadoop.mapreduce.lib.input.CombineFileRecordReader;
 import org.apache.hadoop.mapreduce.lib.input.CombineFileSplit;
 
 import java.io.IOException;
+import java.util.Random;
 
 public class FITSCombineFileInputFormat
         extends CombineFileInputFormat<Text, Text> {
+
+    public static final int randIntMax = 6;
 
     public static class FITSCombineFileRecordReader
             extends RecordReader<Text, Text> {
@@ -21,6 +24,7 @@ public class FITSCombineFileInputFormat
         private char band;
         private boolean processed;
         private Text key, value;
+        private Random random;
 
         public FITSCombineFileRecordReader(CombineFileSplit split,
                                            TaskAttemptContext context,
@@ -34,6 +38,7 @@ public class FITSCombineFileInputFormat
             key = new Text();
             value = new Text();
             processed = false;
+            random = new Random();
         }
 
         @Override
@@ -45,7 +50,7 @@ public class FITSCombineFileInputFormat
         @Override
         public boolean nextKeyValue() throws IOException, InterruptedException {
             if (!processed) {
-                key.set(camcol + "-" + band);
+                key.set(camcol + "-" + band + "-" + random.nextInt(randIntMax));
                 value.set(this.path.toUri().toString());
                 processed = true;
                 return true;

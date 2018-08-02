@@ -16,7 +16,6 @@ import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.input.FileSplit;
 import org.apache.log4j.Logger;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -110,38 +109,6 @@ public class FITSInputFormat extends FileInputFormat<ImgFilter.queryRes, Text> {
             } catch (FitsException e) {
                 throw new IOException();
             }
-            /*
-            byte[] tempbytes = new byte[80];
-            int byteread = 0;
-            int num = 1;
-            while(num < 66) {
-                byteread = in.read(tempbytes);
-                num++;
-            }
-            byte[] crpix1 = new byte[80];
-            byte[] crpix2 = new byte[80];
-            byte[] crval1 = new byte[80];
-            byte[] crval2 = new byte[80];
-            byte[] cd1 = new byte[80];
-            byte[] cd2 = new byte[80];
-            byteread = in.read(crpix1);
-            byteread = in.read(crpix2);
-            byteread = in.read(crval1);
-            byteread = in.read(crval2);
-            byteread = in.read(tempbytes);
-            byteread = in.read(cd1);
-            byteread = in.read(cd2);
-            double referX = ImgFilter.asciiToDouble(crpix1);
-            double referY = ImgFilter.asciiToDouble(crpix2);
-            double referRa = ImgFilter.asciiToDouble(crval1);
-            double referDec = ImgFilter.asciiToDouble(crval2);
-            double raDeg = ImgFilter.asciiToDouble(cd1);
-            double decDeg = ImgFilter.asciiToDouble(cd2);
-            minRa = referRa - referY * raDeg;
-            maxRa = referRa + (1489 - referY) * raDeg;
-            minDec = referDec - referX * decDeg;
-            maxDec = referDec + (2048 - referX) * decDeg;
-            */
         }
 
         @Override

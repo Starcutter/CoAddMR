@@ -39,11 +39,14 @@ public class FITS2Sequence {
 
         @Override
         public int getPartition(Text key, Text value, int numPartitions) {
-            String[] colband = key.toString().split("-");
-            int col = Integer.parseInt(colband[0]);
-            char band = colband[1].charAt(0);
+            String[] colBandRand = key.toString().split("-");
+            int col = Integer.parseInt(colBandRand[0]);
+            char band = colBandRand[1].charAt(0);
             int bandId = bandMap.get(band);
-            return (col - 1) * 5 + bandId;
+            int rand = Integer.parseInt(colBandRand[2]);
+            return (col - 1) * 5 * FITSCombineFileInputFormat.randIntMax
+                    + bandId * FITSCombineFileInputFormat.randIntMax
+                    + rand;
         }
     }
 
@@ -87,8 +90,8 @@ public class FITS2Sequence {
             if (compressionCodecFactory == null) {
                 compressionCodecFactory = new CompressionCodecFactory(conf);
             }
-            String colband = key.toString();
-            LOG.error(colband);
+            String colBandRand = key.toString();
+            LOG.error(colBandRand);
             for (Text value : values) {
                 InputStream in = null;
                 Path imagePath = new Path(value.toString());
@@ -122,7 +125,7 @@ public class FITS2Sequence {
                         for (int i = 0; i < height * width; i++) {
                             imageWritable[i].set(image[i]);
                         }
-                        tmpKey.set(colband + "-"
+                        tmpKey.set(colBandRand + "-"
                                 + minRa + "," + maxRa + ","
                                 + minDec + "," + maxDec);
                         tmpValue.set(imageWritable);
@@ -150,7 +153,7 @@ public class FITS2Sequence {
         job.setMapperClass(NullMapper.class);
         job.setReducerClass(ExtractReducer.class);
 
-        job.setNumReduceTasks(30);
+        job.setNumReduceTasks(30 * FITSCombineFileInputFormat.randIntMax);
         job.setPartitionerClass(ColBandPartitioner.class);
 
         job.setMapOutputKeyClass(Text.class);
@@ -159,7 +162,7 @@ public class FITS2Sequence {
         job.setOutputValueClass(Mosaic.FloatArrayWritable.class);
 
         job.setInputFormatClass(FITSCombineFileInputFormat.class);
-        job.setOutputFormatClass(SequenceFileOutputFormat.class);
+        job.setOutputFormatClass(SequenceFITSOutputFormat.class);
         SequenceFileOutputFormat.setOutputCompressionType(job,
                 SequenceFile.CompressionType.BLOCK);
         SequenceFileOutputFormat.setOutputCompressorClass(job,
