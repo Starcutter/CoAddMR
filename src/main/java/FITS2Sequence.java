@@ -68,7 +68,6 @@ public class FITS2Sequence {
         private Decompressor decompressor;
 
         private final int height = 1489, width = 2048;
-        private float[] image;
         private FloatWritable[] imageWritable;
 
         private Text tmpKey = new Text();
@@ -76,7 +75,6 @@ public class FITS2Sequence {
 
         @Override
         public void setup(Context context) throws IOException {
-            image = new float[height * width];
             imageWritable = new FloatWritable[height * width];
             for (int i = 0; i < height * width; i++) {
                 imageWritable[i] = new FloatWritable(0);
@@ -120,10 +118,13 @@ public class FITS2Sequence {
                     double minDec = referDec - referX * decDeg;
                     double maxDec = referDec + (2048 - referX) * decDeg;
 //                    if (hdu.getData().reset()) {
-                        ArrayDataInput adi = fits.getStream();
-                        adi.read(image);
-                        for (int i = 0; i < height * width; i++) {
-                            imageWritable[i].set(image[i]);
+//                        ArrayDataInput adi = fits.getStream();
+//                        adi.read(image);
+                    float[][] image = (float[][]) hdu.getKernel();
+                        for (int i = 0; i < height; i++) {
+                            for (int j = 0; j < width; j++) {
+                                imageWritable[i * width + j].set(image[i][j]);
+                            }
                         }
                         tmpKey.set(colBandRand + "-"
                                 + minRa + "," + maxRa + ","
@@ -133,9 +134,6 @@ public class FITS2Sequence {
 //                    }
                     fits.close();
                 } catch (FitsException e) {
-                    if (in != null) {
-                        in.close();
-                    }
                     throw new IOException();
                 }
             }

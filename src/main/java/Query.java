@@ -14,7 +14,7 @@ public class Query {
             colMin = 6;
         } else if (this.query[2] > 0.50) {
             colMin = 5;
-        } else if (this.query[2] > 0.05) {
+        } else if (this.query[2] > 0.20) {
             colMin = 4;
         } else if (this.query[2] > -0.35) {
             colMin = 3;

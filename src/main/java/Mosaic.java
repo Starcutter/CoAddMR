@@ -330,7 +330,11 @@ public class Mosaic {
         job.setOutputValueClass(BytesWritable.class);
 
         job.setInputFormatClass(FITSInputFormat.class);
-        job.setOutputFormatClass(ImageOutputFormat.class);
+        if (args.length >= 4 && args[3].toLowerCase().startsWith("fits")) {
+            job.setOutputFormatClass(FITSOutputFormat.class);
+        } else {
+            job.setOutputFormatClass(ImageOutputFormat.class);
+        }
 
         /*
         for (ImgFilter.queryRes info : infos) {

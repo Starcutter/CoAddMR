@@ -4,6 +4,7 @@ import org.apache.hadoop.io.*;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.input.SequenceFileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.log4j.Logger;
 
@@ -22,9 +23,6 @@ public class MosaicNew {
         private Configuration conf;
 
         private Query[] queries;
-        private int[] picOut;
-        private double[] queryOut;
-        private double minRa, maxRa, minDec, maxDec;
 
         private final int singleHeight = 1489, singleWidth = 2048;
 
@@ -39,22 +37,25 @@ public class MosaicNew {
             String queryStr = conf.get("query");
             queries = Query.getQueries(queryStr);
             picHeight = SyntheticPic.standard;
-            picOut = new int[4];
-            queryOut = new double[4];
+            LOG.error(queries.length);
+            LOG.error(queries[0].query[0] + "," + queries[0].query[1]
+                    + queries[0].query[2] + "," + queries[0].query[3]);
         }
 
         @Override
         public void map(Text key, Mosaic.FloatArrayWritable value, Context context
         ) throws IOException, InterruptedException {
             // camcol-band-rand-minRa,maxRa,minDec,macDec
-            String[] splits = key.toString().split("-");
-            int camcol = Integer.parseInt(splits[0]);
-            char band = splits[1].charAt(0);
-            String[] nums = splits[3].split(",");
-            minRa = Double.parseDouble(nums[0]);
-            maxRa = Double.parseDouble(nums[1]);
-            minDec = Double.parseDouble(nums[2]);
-            maxDec = Double.parseDouble(nums[3]);
+            String keyStr = key.toString();
+            int camcol = Integer.parseInt(key.toString().substring(0, 1));
+            char band = keyStr.charAt(2);
+            String[] nums = keyStr.substring(keyStr.indexOf('-', 4) + 1)
+                    .split(",");
+            double minRa = Double.parseDouble(nums[0]);
+            double maxRa = Double.parseDouble(nums[1]);
+            double minDec = Double.parseDouble(nums[2]);
+            double maxDec = Double.parseDouble(nums[3]);
+            LOG.error(minRa + "," + maxRa + "," + minDec + "," + maxDec);
 
             Writable[] image = value.get();
 
@@ -62,10 +63,13 @@ public class MosaicNew {
                 tmpKey.set(queryId);
                 query = queries[queryId].query;
                 if (!queries[queryId].isOverlapping(camcol, band)) {
+                    LOG.error("false");
                     continue;
                 }
 
                 picWidth = (int) (picHeight * (query[3] - query[2]) / (query[1] - query[0]));
+                int[] picOut = new int[4];
+                double[] queryOut = new double[4];
                 ImgFilter.queryRes info;
 
                 if(minRa < query[1] && maxRa > query[0] &&
@@ -104,9 +108,11 @@ public class MosaicNew {
 
                     info = new ImgFilter.queryRes("dull", picOut, queryOut, queryId);
                 } else {
+                    LOG.error("false");
                     continue;
                 }
 
+                LOG.error("true");
                 IntWritable[] cnt = new IntWritable[picHeight * picWidth];
                 for (int i = 0; i < picHeight; i++) {
                     for (int j = 0; j < picWidth; j++) {
@@ -198,7 +204,11 @@ public class MosaicNew {
         job.setOutputValueClass(BytesWritable.class);
 
         job.setInputFormatClass(SequenceFITSInputFormat.class);
-        job.setOutputFormatClass(ImageOutputFormat.class);
+        if (args.length >= 4 && args[3].toLowerCase().startsWith("fits")) {
+            job.setOutputFormatClass(FITSOutputFormat.class);
+        } else {
+            job.setOutputFormatClass(ImageOutputFormat.class);
+        }
 
         FileInputFormat.addInputPath(job, inPath);
         FileOutputFormat.setOutputPath(job, outPath);
