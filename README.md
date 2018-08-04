@@ -2,6 +2,8 @@
 
 项目报告，2018年8月
 
+项目代码参见 Github 仓库：[CoAddMR](https://github.com/Starcutter/CoAddMR)
+
 ## 项目目标
 
 ### 问题与目标
@@ -110,6 +112,18 @@ data/4797/6/frame-g-004797-6-0018.fits.bz2
 用参考文献[1]中的示意图说明整体架构：
 
 <img src="https://raw.githubusercontent.com/Starcutter/CoAddMR/master/images/mapreduce.png" width="80%">
+
+查询格式：通过命令行参数输入多条查询，形式如下：
+
+```
+[minRa],[minDec],[maxRa],[maxDec],[band];...
+```
+
+例如：
+
+```
+37.1,37.2,0.1,0.2,g;39.5,39,86,-0.8,-1.1,i
+```
 
 ## 项目实现
 
