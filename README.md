@@ -57,7 +57,31 @@ data/4797/6/frame-g-004797-6-0018.fits.bz2
 
 ### FITS文件格式
 
-// TODO...
+本项目所使用的数据为 FITS 格式。每一个`.fits`文件都包含三个模块：`Header-Data Units`、`Header`、`Data`。
+
+1. Header-Data Units
+
+   一个FITS文件由一个或多个Header-Data Units（HDU）组成，每一个HDU包含Header和Data两部分。在次项目中，我们只用到了第一个HDU，即二维图像数据。
+
+2. Header
+
+   该部分包含了当前HDU的meta-data，包括图像的赤经、赤纬范围，图像的大小等信息。
+
+3. Data
+
+   这一部分是float类型的二维图像数据，其含义为光通密度而非像素值，在后续的处理中需要进行归一化。
+
+对于FITS格式文件的处理，我们采用了Java自带的`nom-tam-fits`库，可以较为简易地实现FITS文件的读入、根据`key`值从Header中提取出赤经、赤纬范围等关键信息，以及最终输出为FITS格式的文件。具体的过程如下：
+
+* 根据`key = CRPIX1`提取出参考点的赤纬像素位置`referRa`，`key = CRPIX2`提取出参考点的赤经像素位置`referDec`
+* 根据`key = CRVAL1`提取出参考点的赤经坐标`referY`，`key = CRVAL2`提取出参考点的赤纬坐标`referX`
+* 根据`key = CD1_2`提取出每个像素的赤经宽度`raDeg`，`key = CD2_1`提取出每个像素的赤纬宽度`decDeg`
+* 所读入的图片赤经、赤纬范围计算如下：
+  * $maxRa = referRa + (1489 - referY) × raDeg$
+  * $minRa = referRa - referY × raDeg $
+  * $maxDec = referDec + (2048 - referX) × decDeg$
+  * $minDec = referDec - referX × decDeg$
+* 统计每一个`camcol`的赤纬范围，以方便后续与查询范围比较
 
 ### 项目总体架构
 
